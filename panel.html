@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="panel.css">
+  <meta charset="utf-8">
+  <title>Panel de Encuesta</title>
+  <style>
+    body { font-family:sans-serif; background:#111; color:#eee; padding:20px; }
+    input, select, textarea, button { display:block; margin:8px 0; width:100%; }
+  </style>
+</head>
+<body>
+  <h1>Panel de Encuesta</h1>
+  <div class="container">
+    <label>Pregunta</label>
+    <input id="question" type="text" placeholder="¿Cuál elegimos?">
+
+    <label>Opciones</label>
+    <div id="optionsList"></div>
+
+    <div id="addRow">
+    <input id="newOption" type="text" placeholder="Nueva opción">
+    <button id="addOption" type="button">Agregar</button>
+    </div>
+
+    
+
+    <label>Mostrar</label>
+    <select id="displayMode">
+        <option value="tally">Votos</option>
+        <option value="percent">Porcentaje</option>
+      
+    </select>
+
+    <label>Duración (segundos, 0 = sin tiempo)</label>
+    <input id="timerSec" type="number" value="0">
+
+    <div class="checkbox-group">
+      <input type="checkbox" id="allowMulti">
+      <label for="allowMulti">Permitir múltiples votos</label>
+    </div>
+
+    <button id="start">Iniciar Encuesta</button>
+    <button id="reset">Reiniciar Encuesta</button>
+    <button id="close">Cerrar Encuesta</button>
+  </div>
+
+  <script>
+    const session = "JeCxgqzYcp"; // igual que el overlay
+    const ws = new WebSocket("ws://localhost:3000");
+
+    ws.onopen = () => ws.send(JSON.stringify({ join: session }));
+
+    function send(payload) {
+      ws.send(JSON.stringify({ broadcast: true, payload }));
+    }
+    // ====== Opciones dinámicas ======
+    const optionsState = []; // aquí guardamos las opciones actuales
+
+    function renderOptions() {
+    const box = document.getElementById("optionsList");
+    box.innerHTML = "";
+    optionsState.forEach((text, i) => {
+        const row = document.createElement("div");
+        row.className = "option-row";
+
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.value = text;
+        inp.style.flex = "1";
+        inp.oninput = () => { optionsState[i] = inp.value; };
+
+        const del = document.createElement("button");
+        del.type = "button";
+        del.textContent = "Eliminar";
+        del.onclick = () => { optionsState.splice(i, 1); renderOptions(); };
+
+        row.appendChild(inp);
+        row.appendChild(del);
+        box.appendChild(row);
+    });
+    }
+
+    function addOptionFromInput() {
+    const el = document.getElementById("newOption");
+    const v = (el.value || "").trim();
+    if (!v) return;
+    optionsState.push(v);
+    el.value = "";
+    renderOptions();
+    }
+
+    document.getElementById("addOption").onclick = addOptionFromInput;
+    document.getElementById("newOption").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") addOptionFromInput();
+    });
+
+    function getOptionsCSV() {
+    // filtra vacíos y dupes simples
+    const clean = optionsState.map(s => (s||"").trim()).filter(Boolean);
+    return clean.join(",");
+    }
+
+    // Inicializa con un par de ejemplos si está vacío
+    optionsState.push("A", "B", "C");
+    renderOptions();
+
+
+    document.getElementById("start").onclick = () => {
+      const q = document.getElementById("question").value;
+      const opts = getOptionsCSV(); // viene de la lista dinámica
+      // Timer: 0 = oculto / desactivado; >0 = activo
+    const secs = parseInt(document.getElementById("timerSec").value || "0", 10);
+
+    // Modo de visualización
+    const mode = document.getElementById("displayMode").value;  
+
+      send({
+        settings: {
+          pollEnabled: { setting: true },
+          pollQuestion: { textsetting: q },
+          multipleChoiceOptions: { textsetting: opts },
+          pollType: { optionsetting: "multiple" },
+
+           // Mostrar % o votos: true = tally (votos), false = porcentaje
+            pollTally: { setting: mode === "tally" },
+
+            // Solo mandamos el número; 0 = sin timer
+            pollTimer: { numbersetting: isNaN(secs) ? 0 : secs },
+            pollSpam: { setting: document.getElementById("allowMulti").checked }
+        },
+      });
+      send({ cmd: "startpoll" });
+    };
+
+    document.getElementById("reset").onclick = () => send({ cmd: "resetpoll" });
+    document.getElementById("close").onclick = () => send({ cmd: "closepoll" });
+  </script>
+</body>
+</html>
